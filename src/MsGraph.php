@@ -18,6 +18,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Provider\GenericProvider;
+use Log;
 
 class MsGraph
 {
@@ -51,7 +52,7 @@ class MsGraph
      * Make a connection or return a token where it's valid.
      * @return mixed
      */
-    public function connect($id = null)
+    public function connect($id = null, $options = null)
     {
         //if no id passed get logged in user
         if ($id == null) {
@@ -67,11 +68,12 @@ class MsGraph
             'urlAccessToken'          => config('msgraph.urlAccessToken'),
             'urlResourceOwnerDetails' => config('msgraph.urlResourceOwnerDetails'),
             'scopes'                  => config('msgraph.scopes'),
+            ...($options ?? [])
         ]);
 
         //when no code param redirect to Microsoft
         if (!request()->has('code')) {
-            return redirect($provider->getAuthorizationUrl());
+            return redirect($provider->getAuthorizationUrl($options ?? []));
         } elseif (request()->has('code')) {
             // With the authorization code, we can retrieve access tokens and other data.
             try {
@@ -89,7 +91,7 @@ class MsGraph
 
                 //get user details
                 $me = Api::get('me', null, [], $id);
-
+                
                 $event = [
                     'token_id' => $result->id,
                     'info'     => $me,
@@ -97,6 +99,7 @@ class MsGraph
 
                 if ($event['info']['mail'] === null) {
                     $email = $event['info']['userPrincipalName'];
+                    $event['info']['mail'] = $email;
                 } else {
                     $email = $event['info']['mail'];
                 }
@@ -131,9 +134,8 @@ class MsGraph
      */
     public function disconnect($redirectPath = '/', $logout = true, $id = null)
     {
-        $id = ($id) ? $id : auth()->id();
-        $token = MsGraphToken::where('user_id', $id)->latest()->first();
-
+        $id    = ($id) ? $id : auth()->id();
+        $token = MsGraphToken::where('user_id', $id)->first();
         if ($token != null) {
             $token->delete();
         }
@@ -156,7 +158,7 @@ class MsGraph
     {
         //use id if passed otherwise use logged in user
         $id    = ($id) ? $id : auth()->id();
-        $token = MsGraphToken::where('user_id', $id)->where('refresh_token', '<>', '')->latest()->first();
+        $token = MsGraphToken::where('user_id', $id)->first();
 
         // Check if tokens exist otherwise run the oauth request
         if (!isset($token->access_token)) {
@@ -203,8 +205,9 @@ class MsGraph
      */
     public function getTokenData($id = null)
     {
-        $id = ($id) ? $id : auth()->id();
-        return MsGraphToken::where('user_id', $id)->where('refresh_token', '<>', '')->latest()->first();
+        $id = $id ?: auth()->id();
+
+        return MsGraphToken::where('user_id', $id)->first();
     }
 
     /**
